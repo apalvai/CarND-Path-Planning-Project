@@ -160,6 +160,7 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
 
 }
 
+int maxLanes = 3;
 int lane = 1; // For the current project it can take values {0, 1, 2}
 double max_vel = 49.5; // Vehicle's velocity should never exceed this value
 double ref_vel = 0.0; // Set the initial velocity to 0.0
@@ -250,39 +251,90 @@ int main() {
             
             int prev_size = previous_path_x.size();
             
-            // Collision detection and avoidance. We use sensor fusion data for this purpose
+            // Collision detection and avoidance. We use sensor fusion data for this purpose.
+            // Result of this would be to pick the appropriate values for ref_vel and lane.
             if (prev_size > 0)
             {
                 car_s = end_path_s;
             }
             
-            bool too_close = false;
-            for (int i=0; i<sensor_fusion.size(); i++)
+            vector<bool>too_close = {false, false, false};
+            for (int lane_index=0; lane_index<maxLanes; lane_index++)
             {
-                vector<double> vehicle = sensor_fusion[i];
-                
-                // check whether the other vehicle is in my lane
-                float d = vehicle[6];
-                if (d < (2+4*lane+2) && d > (2+4*lane-2))
+                for (int i=0; i<sensor_fusion.size(); i++)
                 {
-                    double vel_x = vehicle[3];
-                    double vel_y = vehicle[4];
-                    double vel = sqrt(vel_x*vel_x + vel_y*vel_y);
+                    vector<double> vehicle = sensor_fusion[i];
                     
-                    double vehcile_s = vehicle[5];
-                    vehcile_s += (double)prev_size * 0.02 * vel;
-                    
-                    // A vehcile is too close, if the vehicle's projected path is within the 30m range of our vehicle
-                    if (vehcile_s > car_s && vehcile_s < car_s + 30)
+                    // check whether the other vehicle is in this lane
+                    float d = vehicle[6];
+                    if (d < (2+4*lane_index+2) && d > (2+4*lane_index-2))
                     {
-                        too_close = true;
+                        double vel_x = vehicle[3];
+                        double vel_y = vehicle[4];
+                        double vel = sqrt(vel_x*vel_x + vel_y*vel_y);
+                        
+                        double vehcile_s = vehicle[5];
+                        vehcile_s += (double)prev_size * 0.02 * vel;
+                        
+                        // A vehcile is too close, if the vehicle's projected path is within the 30m range of our vehicle
+                        if (vehcile_s > car_s - 10 && vehcile_s < car_s + 30)
+                        {
+                            too_close[lane_index] = true;
+                        }
                     }
                 }
             }
             
-            if (too_close)
+            // Check whether there are any vehicles that are too close in the current lane.
+            if (too_close[lane])
             {
-                ref_vel -= 0.5;
+                // Check whether you are not in the left most lane
+                if (lane > 0)
+                {
+                    // Check whether there are any vehicles that are too close in the left lane
+                    if (too_close[lane-1])
+                    {
+                        // Check whether you are not in the right most lane
+                        if (lane < maxLanes-1)
+                        {
+                            // check whether there are any vehciles that are too close in the right most lane
+                            if (too_close[lane+1])
+                            {
+                                // Reduce velocity
+                                ref_vel -= 0.5;
+                            }
+                            else
+                            {
+                                // Change lane to the right
+                                lane = lane+1;
+                            }
+                        }
+                        else
+                        {
+                            // Reduce velocity
+                            ref_vel -= 0.5;
+                        }
+                    }
+                    else
+                    {
+                        // Change lane to the left
+                        lane = lane-1;
+                    }
+                }
+                else
+                {
+                    // Check whether there are any vehicles that are too close in the right lane
+                    if (too_close[lane+1])
+                    {
+                        // Reduce velocity
+                        ref_vel -= 0.5;
+                    }
+                    else
+                    {
+                        // Change lane
+                        lane = lane+1;
+                    }
+                }
             }
             else if (ref_vel < max_vel)
             {
